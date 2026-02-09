@@ -306,7 +306,10 @@ export class ChatRoom {
     // Queue "join" messages for all online users, to populate the client's roster.
     for (let otherSession of this.sessions.values()) {
       if (otherSession.name) {
-        session.blockedMessages.push(JSON.stringify({joined: otherSession.name}));
+        session.blockedMessages.push(JSON.stringify({
+          type: "join",
+          name: otherSession.name
+        }));
       }
     }
 
@@ -343,11 +346,18 @@ export class ChatRoom {
 
       // I guess we'll use JSON.
       let data = JSON.parse(msg);
+      let messageType = data.type;
 
       if (!session.name) {
+        if (messageType && messageType !== "join") {
+          webSocket.send(JSON.stringify({
+            error: "Expected join message first, received: " + messageType
+          }));
+          return;
+        }
         // The first message the client sends is the user info message with their name. Save it
         // into their session object.
-        session.name = "" + (data.name || "anonymous");
+        session.name = String(data.name || "").trim() || "anonymous";
         // attach name to the webSocket so it survives hibernation
         webSocket.serializeAttachment({ ...webSocket.deserializeAttachment(), name: session.name });
 
@@ -366,14 +376,21 @@ export class ChatRoom {
         delete session.blockedMessages;
 
         // Broadcast to all other connections that this user has joined.
-        this.broadcast({joined: session.name});
+        this.broadcast({type: "join", name: session.name});
 
         webSocket.send(JSON.stringify({ready: true}));
         return;
       }
 
+      if (messageType && messageType !== "message") {
+        webSocket.send(JSON.stringify({
+          error: "Unknown message type: " + messageType
+        }));
+        return;
+      }
+
       // Construct sanitized message for storage and broadcast.
-      data = { name: session.name, message: "" + data.message };
+      data = { type: "message", name: session.name, message: "" + data.message };
 
       // Block people from sending overly long messages. This is also enforced on the client,
       // so to trigger this the user must be bypassing the client code.
@@ -409,7 +426,7 @@ export class ChatRoom {
     session.quit = true;
     this.sessions.delete(webSocket);
     if (session.name) {
-      this.broadcast({quit: session.name});
+      this.broadcast({type: "quit", name: session.name});
     }
   }
 
@@ -450,7 +467,7 @@ export class ChatRoom {
 
     quitters.forEach(quitter => {
       if (quitter.name) {
-        this.broadcast({quit: quitter.name});
+        this.broadcast({type: "quit", name: quitter.name});
       }
     });
   }
