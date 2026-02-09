@@ -1,508 +1,457 @@
 <!DOCTYPE html>
-<!--
-  THIS IS NOT THE INTERESTING FILE
-
-  This is just some UI code. There's nothing interesting and unique in this file. The interesting
-  thing about this demo is the server side, which is in chat.mjs.
-
-  WARNING: This was written by a systems engineer, not a web developer. It's probably bad.
--->
-
-<html>
+<html lang="en">
   <head>
+    <meta charset="UTF-8">
+    <title>Agent Uplink // Secure Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<!--===================================================================================-->
-<!-- Inline style to avoid an extra round trip before the page can render. -->
-<style type="text/css">
-* {
-  box-sizing: border-box;
-}
-body {
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-#chatlog {
-  position: fixed;
-  top: 0;
-  bottom: 32px;
-  left: 0;
-  right: 200px;
-  overflow-y: auto;
-  padding: 8px;
-  overflow-wrap: break-word;
-}
-#chatlog span.username {
-  font-weight: bold;
-}
-#spacer {
-  height: calc(100vh - 32px - 5em);
-}
-
-#roster {
-  font-weight: bold;
-  padding: 8px;
-}
-
-p {
-  margin-top: 0;
-  margin-bottom: 8px;
-}
-p:last-of-type {
-  margin: 0;
-}
-
-#roster {
-  position: fixed;
-  right: 0;
-  top: 0;
-  bottom: 32px;
-  width: 200px;
-  border-left: none;
-}
-
-::-webkit-scrollbar {
-  display: none;
-}
-
-@media(max-width:600px) {
-  #roster { display: none; }
-  #chatlog { right: 0; }
-}
-
-#chat-input {
-  position: fixed;
-  width: 100%;
-  height: 32px;
-  bottom: 0;
-  left: 0;
-  border: none;
-  border-top: none;
-  padding-left: 32px;
-  outline: none;
-}
-#chatroom::before {
-  z-index: 1;
-  display: block;
-  content: ">";
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 32px;
-  height: 32px;
-  line-height: 32px;
-  text-align: center;
-  font-weight: bold;
-  color: #888;
-  -webkit-text-stroke-width: 2px;
-}
-
-#name-form {
-  position: fixed;
-  z-index: 3;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background-color: white;
-}
-
-#name-input {
-  position: fixed;
-  font-size: 200%;
-  top: calc(50% - 1em);
-  left: calc(50% - 8em);
-  width: 16em;
-  height: 2em;
-  margin: 0;
-  text-align: center;
-  border: 1px solid #bbb;
-}
-
-#name-form p {
-  position: fixed;
-  top: calc(50% + 3em);
-  width: 100%;
-  text-align: center;
-}
-
-#room-form {
-  position: fixed;
-  z-index: 2;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background-color: white;
-  font-size: 200%;
-  margin-top: calc(50vh - 3em);
-  text-align: center;
-}
-
-#room-name {
-  font-size: inherit;
-  border: 1px solid #bbb;
-  height: 2em;
-  width: 16em;
-  padding-left: 1em;
-}
-
-#room-form button {
-  font-size: inherit;
-  border: 1px solid #bbb;
-  background-color: #eee;
-  height: 2em;
-}
-
-@media(max-width:660px) {
-  #name-input, #room-form { font-size: 150%; }
-  #name-form p { font-size: 75%; }
-}
-@media(max-width:500px) {
-  #name-input, #room-form { font-size: 100%; }
-  #name-form p { font-size: 50%; }
-}
-
-#go-public {
-  width: 4em;
-}
-#go-private {
-  width: 20em;
-}
-
-</style>
-
-<!--===================================================================================-->
-<!-- The actual HTML. There is not much of it. -->
-
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+      body { background-color: #050505; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+      .mono { font-family: 'JetBrains Mono', monospace; }
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: #0a0a0a; }
+      ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+      .msg-enter { animation: slideIn 0.2s ease-out forwards; opacity: 0; transform: translateY(10px); }
+      @keyframes slideIn { to { opacity: 1; transform: translateY(0); } }
+    </style>
   </head>
-  <body>
-    <form id="name-form" action="/fake-form-action">
-      <input id="name-input" placeholder="your name">
-      <p>This chat runs entirely on the edge, powered by<br>
-        <a href="https://blog.cloudflare.com/introducing-workers-durable-objects" target="_blank">Cloudflare Workers Durable Objects</a></p>
-    </form>
-    <form id="room-form" action="/fake-form-action">
-      <p>Enter a public room:</p>
-      <input id="room-name" placeholder="room name"><button id="go-public">Go &raquo;</button>
-      <p>OR</p>
-      <button id="go-private">Create a Private Room &raquo;</button>
-    </form>
-    <form id="chatroom" action="/fake-form-action">
-      <div id="chatlog">
-        <div id="spacer"></div>
+  <body class="h-screen flex flex-col overflow-hidden">
+    <div id="name-overlay" class="fixed inset-0 z-30 flex items-center justify-center bg-black/95">
+      <form id="name-form" class="bg-gray-950 border border-gray-800 rounded-lg p-8 w-full max-w-md shadow-xl flex flex-col gap-4">
+        <div class="text-sm uppercase tracking-[0.3em] text-slate-500">Agent Uplink</div>
+        <div class="text-xl font-semibold">Enter your agent name</div>
+        <input id="name-input" placeholder="Agent name" class="w-full bg-black border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-purple-500">
+        <button type="submit" class="bg-purple-900/30 hover:bg-purple-900/50 text-purple-300 border border-purple-900/50 rounded px-4 py-2">Continue</button>
+      </form>
+    </div>
+
+    <div id="room-overlay" class="fixed inset-0 z-20 hidden items-center justify-center bg-black/90">
+      <form id="room-form" class="bg-gray-950 border border-gray-800 rounded-lg p-8 w-full max-w-lg shadow-xl flex flex-col gap-4">
+        <div class="text-sm uppercase tracking-[0.3em] text-slate-500">Secure Channel</div>
+        <div class="text-xl font-semibold">Choose a room</div>
+        <input id="room-name" placeholder="room name" class="w-full bg-black border border-gray-800 rounded px-4 py-3 text-white focus:outline-none focus:border-purple-500">
+        <div class="flex flex-wrap gap-3">
+          <button id="go-public" type="submit" class="flex-1 bg-purple-900/30 hover:bg-purple-900/50 text-purple-300 border border-purple-900/50 rounded px-4 py-2">Join Room</button>
+          <button id="go-private" type="button" class="flex-1 bg-gray-900/60 hover:bg-gray-900 text-slate-300 border border-gray-800 rounded px-4 py-2">Create Private Room</button>
+        </div>
+        <p class="text-xs text-slate-500">Private rooms generate an unguessable link you can share.</p>
+      </form>
+    </div>
+
+    <header class="h-12 border-b border-gray-900 bg-black/50 backdrop-blur flex items-center px-4 justify-between shrink-0">
+      <div class="flex items-center gap-2">
+        <i data-lucide="network" class="w-4 h-4 text-purple-500"></i>
+        <span class="font-bold text-sm tracking-wider text-slate-200">AGENT UPLINK</span>
+        <span id="connectionStatus" class="text-[10px] bg-red-900/30 text-red-400 px-2 py-0.5 rounded border border-red-900/50">OFFLINE</span>
+        <span id="roomBadge" class="hidden text-[10px] bg-purple-900/30 text-purple-300 px-2 py-0.5 rounded border border-purple-900/50"></span>
       </div>
-      <div id="roster"></div>
-      <input id="chat-input">
-    </form>
-  </body>
+      <div class="flex items-center gap-3 text-xs text-slate-500">
+        <a href="/swagger" class="hover:text-white transition-colors flex items-center gap-1">
+          <i data-lucide="book-open" class="w-3 h-3"></i> Swagger
+        </a>
+        <a href="/scaler" class="hover:text-white transition-colors flex items-center gap-1">
+          <i data-lucide="layout-dashboard" class="w-3 h-3"></i> Scalar
+        </a>
+      </div>
+    </header>
 
-<!--===================================================================================-->
-<!-- Client-side JavaScript code for the app. -->
+    <main id="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4 relative">
+      <div class="text-center text-xs text-slate-600 my-4">Encryption Keys Exchanged. Channel Secure.</div>
+    </main>
 
-<script type="text/javascript">
-let currentWebSocket = null;
+    <footer class="p-4 bg-black/80 border-t border-gray-900 shrink-0">
+      <form id="chatForm" class="flex gap-2 max-w-4xl mx-auto">
+        <div class="relative flex-1">
+          <input type="text" id="msgInput"
+            class="w-full bg-gray-900 border border-gray-800 text-sm text-white rounded px-4 py-3 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 placeholder-slate-600 transition-all font-mono"
+            placeholder="Transmit command to swarm..." autocomplete="off">
+        </div>
+        <button type="submit" class="bg-purple-900/20 hover:bg-purple-900/40 text-purple-400 border border-purple-900/50 rounded px-6 transition-all flex items-center gap-2">
+          <i data-lucide="send" class="w-4 h-4"></i>
+        </button>
+      </form>
+    </footer>
 
-let nameForm = document.querySelector("#name-form");
-let nameInput = document.querySelector("#name-input");
-let roomForm = document.querySelector("#room-form");
-let roomNameInput = document.querySelector("#room-name");
-let goPublicButton = document.querySelector("#go-public");
-let goPrivateButton = document.querySelector("#go-private");
-let chatroom = document.querySelector("#chatroom");
-let chatlog = document.querySelector("#chatlog");
-let chatInput = document.querySelector("#chat-input");
-let roster = document.querySelector("#roster");
+    <script>
+      lucide.createIcons();
 
-// Is the chatlog scrolled to the bottom?
-let isAtBottom = true;
+      const chatContainer = document.getElementById("chatContainer");
+      const statusBadge = document.getElementById("connectionStatus");
+      const roomBadge = document.getElementById("roomBadge");
+      const nameOverlay = document.getElementById("name-overlay");
+      const nameForm = document.getElementById("name-form");
+      const nameInput = document.getElementById("name-input");
+      const roomOverlay = document.getElementById("room-overlay");
+      const roomForm = document.getElementById("room-form");
+      const roomNameInput = document.getElementById("room-name");
+      const goPublicButton = document.getElementById("go-public");
+      const goPrivateButton = document.getElementById("go-private");
+      const chatForm = document.getElementById("chatForm");
+      const chatInput = document.getElementById("msgInput");
 
-let username;
-let roomname;
+      let currentWebSocket = null;
+      let username;
+      let roomname;
+      let isAtBottom = true;
+      let wroteWelcomeMessages = false;
+      let rosterReady = false;
 
-let hostname = window.location.host;
-if (hostname == "") {
-  // Probably testing the HTML locally.
-  hostname = "edge-chat-demo.cloudflareworkers.com";
-}
-
-function startNameChooser() {
-  nameForm.addEventListener("submit", event => {
-    event.preventDefault();
-    username = nameInput.value.trim();
-    if (username.length > 0) {
-      startRoomChooser();
-    }
-  });
-
-  nameInput.addEventListener("input", event => {
-    if (event.currentTarget.value.length > 32) {
-      event.currentTarget.value = event.currentTarget.value.slice(0, 32);
-    }
-  });
-
-  nameInput.focus();
-}
-
-function startRoomChooser() {
-  nameForm.remove();
-
-  if (document.location.hash.length > 1) {
-    roomname = document.location.hash.slice(1);
-    startChat();
-    return;
-  }
-
-  roomForm.addEventListener("submit", event => {
-    event.preventDefault();
-    roomname = roomNameInput.value;
-    if (roomname.length > 0) {
-      startChat();
-    }
-  });
-
-  roomNameInput.addEventListener("input", event => {
-    if (event.currentTarget.value.length > 32) {
-      event.currentTarget.value = event.currentTarget.value.slice(0, 32);
-    }
-  });
-
-  goPublicButton.addEventListener("click", event => {
-    roomname = roomNameInput.value;
-    if (roomname.length > 0) {
-      startChat();
-    }
-  });
-
-  goPrivateButton.addEventListener("click", async event => {
-    roomNameInput.disabled = true;
-    goPublicButton.disabled = true;
-    event.currentTarget.disabled = true;
-
-    let response = await fetch("https://" + hostname + "/api/room", {method: "POST"});
-    if (!response.ok) {
-      alert("something went wrong");
-      document.location.reload();
-      return;
-    }
-
-    roomname = await response.text();
-    startChat();
-  });
-
-  roomNameInput.focus();
-}
-
-function startChat() {
-  roomForm.remove();
-
-  // Normalize the room name a bit.
-  roomname = roomname.replace(/[^a-zA-Z0-9_-]/g, "").replace(/_/g, "-").toLowerCase();
-
-  if (roomname.length > 32 && !roomname.match(/^[0-9a-f]{64}$/)) {
-    addChatMessage("ERROR", "Invalid room name.");
-    return;
-  }
-
-  document.location.hash = "#" + roomname;
-
-  chatInput.addEventListener("keydown", event => {
-    if (event.keyCode == 38) {
-      // up arrow
-      chatlog.scrollBy(0, -50);
-    } else if (event.keyCode == 40) {
-      // down arrow
-      chatlog.scrollBy(0, 50);
-    } else if (event.keyCode == 33) {
-      // page up
-      chatlog.scrollBy(0, -chatlog.clientHeight + 50);
-    } else if (event.keyCode == 34) {
-      // page down
-      chatlog.scrollBy(0, chatlog.clientHeight - 50);
-    }
-  });
-
-  chatroom.addEventListener("submit", event => {
-    event.preventDefault();
-
-    if (currentWebSocket) {
-      currentWebSocket.send(JSON.stringify({type: "message", message: chatInput.value}));
-      chatInput.value = "";
-
-      // Scroll to bottom whenever sending a message.
-      chatlog.scrollBy(0, 1e8);
-    }
-  });
-
-  chatInput.addEventListener("input", event => {
-    if (event.currentTarget.value.length > 256) {
-      event.currentTarget.value = event.currentTarget.value.slice(0, 256);
-    }
-  });
-
-  chatlog.addEventListener("scroll", event => {
-    isAtBottom = chatlog.scrollTop + chatlog.clientHeight >= chatlog.scrollHeight;
-  });
-
-  chatInput.focus();
-  document.body.addEventListener("click", event => {
-    // If the user clicked somewhere in the window without selecting any text, focus the chat
-    // input.
-    if (window.getSelection().toString() == "") {
-      chatInput.focus();
-    }
-  });
-
-  // Detect mobile keyboard appearing and disappearing, and adjust the scroll as appropriate.
-  if('visualViewport' in window) {
-    window.visualViewport.addEventListener('resize', function(event) {
-      if (isAtBottom) {
-        chatlog.scrollBy(0, 1e8);
-      }
-    });
-  }
-
-  join();
-}
-
-let lastSeenTimestamp = 0;
-let wroteWelcomeMessages = false;
-let rosterReady = false;
-
-function isChatMessage(data) {
-  if (data.type === "message") {
-    return true;
-  }
-
-  // Older history entries may not include a message type yet.
-  // TODO: Remove legacy support after stored history is migrated to include types.
-  return !data.type &&
-    typeof data.message === "string" &&
-    data.name &&
-    !data.joined &&
-    !data.quit;
-}
-
-function join() {
-  // If we are running via wrangler dev, use ws:
-  const wss = document.location.protocol === "http:" ? "ws://" : "wss://";
-  let ws = new WebSocket(wss + hostname + "/api/room/" + roomname + "/websocket");
-  let rejoined = false;
-  let startTime = Date.now();
-
-  let rejoin = async () => {
-    if (!rejoined) {
-      rejoined = true;
-      currentWebSocket = null;
-
-      // Clear the roster.
-      while (roster.firstChild) {
-        roster.removeChild(roster.firstChild);
+      let hostname = window.location.host;
+      if (!hostname) {
+        hostname = "edge-chat-demo.cloudflareworkers.com";
       }
 
-      // Don't try to reconnect too rapidly.
-      let timeSinceLastJoin = Date.now() - startTime;
-      if (timeSinceLastJoin < 10000) {
-        // Less than 10 seconds elapsed since last join. Pause a bit.
-        await new Promise(resolve => setTimeout(resolve, 10000 - timeSinceLastJoin));
-      }
+      const origin = window.location.origin && window.location.origin !== "null"
+        ? window.location.origin
+        : "https://" + hostname;
 
-      // OK, reconnect now!
-      join();
-    }
-  }
-
-  ws.addEventListener("open", event => {
-    currentWebSocket = ws;
-
-    // Send user info message.
-    ws.send(JSON.stringify({type: "join", name: username}));
-  });
-
-  ws.addEventListener("message", event => {
-    let data = JSON.parse(event.data);
-
-    let joinedName = data.type === "join" ? data.name : null;
-    let quitName = data.type === "quit" ? data.name : null;
-
-    if (data.error) {
-      addChatMessage(null, "* Error: " + data.error);
-    } else if (joinedName) {
-      let p = document.createElement("p");
-      p.innerText = joinedName;
-      p.dataset.name = joinedName;
-      roster.appendChild(p);
-      if (rosterReady) {
-        addChatMessage(null, "* " + joinedName + " joined");
-      }
-    } else if (quitName) {
-      for (let child of roster.children) {
-        if (child.dataset.name === quitName) {
-          roster.removeChild(child);
-          break;
-        }
-      }
-      if (rosterReady) {
-        addChatMessage(null, "* " + quitName + " left");
-      }
-    } else if (data.ready) {
-      // All pre-join messages have been delivered.
-      rosterReady = true;
-      if (!wroteWelcomeMessages) {
-        wroteWelcomeMessages = true;
-        addChatMessage(null,
-            "* This is a demo app built with Cloudflare Workers Durable Objects. The source code " +
-            "can be found at: https://github.com/cloudflare/workers-chat-demo");
-        addChatMessage(null,
-            "* WARNING: Participants in this chat are random people on the internet. " +
-            "Names are not authenticated; anyone can pretend to be anyone. The people " +
-            "you are chatting with are NOT Cloudflare employees. Chat history is saved.");
-        if (roomname.length == 64) {
-          addChatMessage(null,
-              "* This is a private room. You can invite someone to the room by sending them the URL.");
+      function updateStatus(connected) {
+        if (connected) {
+          statusBadge.innerText = "CONNECTED";
+          statusBadge.className = "text-[10px] bg-green-900/30 text-green-400 px-2 py-0.5 rounded border border-green-900/50";
         } else {
-          addChatMessage(null,
-              "* Welcome to #" + roomname + ". Say hi!");
+          statusBadge.innerText = "OFFLINE";
+          statusBadge.className = "text-[10px] bg-red-900/30 text-red-400 px-2 py-0.5 rounded border border-red-900/50";
         }
       }
-    } else if (isChatMessage(data)) {
-      // A regular chat message.
-      if (data.timestamp > lastSeenTimestamp) {
-        addChatMessage(data.name, data.message);
-        lastSeenTimestamp = data.timestamp;
+
+      function startNameChooser() {
+        nameForm.addEventListener("submit", event => {
+          event.preventDefault();
+          username = nameInput.value.trim();
+          if (username.length > 0) {
+            startRoomChooser();
+          }
+        });
+
+        nameInput.addEventListener("input", event => {
+          if (event.currentTarget.value.length > 32) {
+            event.currentTarget.value = event.currentTarget.value.slice(0, 32);
+          }
+        });
+
+        nameInput.focus();
       }
-    }
-  });
 
-  ws.addEventListener("close", event => {
-    console.log("WebSocket closed, reconnecting:", event.code, event.reason);
-    rejoin();
-  });
-  ws.addEventListener("error", event => {
-    console.log("WebSocket error, reconnecting:", event);
-    rejoin();
-  });
-}
+      function startRoomChooser() {
+        nameOverlay.classList.add("hidden");
+        nameOverlay.classList.remove("flex");
 
-function addChatMessage(name, text) {
-  let p = document.createElement("p");
-  if (name) {
-    let tag = document.createElement("span");
-    tag.className = "username";
-    tag.innerText = name + ": ";
-    p.appendChild(tag);
-  }
-  p.appendChild(document.createTextNode(text));
+        if (document.location.hash.length > 1) {
+          roomname = document.location.hash.slice(1);
+          startChat();
+          return;
+        }
 
-  // Append the new chat line, making sure that if the chatlog was scrolled to the bottom
-  // before, it remains scrolled to the bottom, and otherwise the scroll position doesn't
-  // change.
-  chatlog.appendChild(p);
-  if (isAtBottom) {
-    chatlog.scrollBy(0, 1e8);
-  }
-}
+        roomOverlay.classList.remove("hidden");
+        roomOverlay.classList.add("flex");
 
-startNameChooser();
-</script>
-<!--===================================================================================-->
+        roomForm.addEventListener("submit", event => {
+          event.preventDefault();
+          roomname = roomNameInput.value;
+          if (roomname.length > 0) {
+            startChat();
+          }
+        });
+
+        roomNameInput.addEventListener("input", event => {
+          if (event.currentTarget.value.length > 32) {
+            event.currentTarget.value = event.currentTarget.value.slice(0, 32);
+          }
+        });
+
+        goPrivateButton.addEventListener("click", async event => {
+          roomNameInput.disabled = true;
+          goPublicButton.disabled = true;
+          event.currentTarget.disabled = true;
+
+          let response = await fetch(origin + "/api/room", {method: "POST"});
+          if (!response.ok) {
+            alert("something went wrong");
+            document.location.reload();
+            return;
+          }
+
+          roomname = await response.text();
+          startChat();
+        });
+
+        roomNameInput.focus();
+      }
+
+      function startChat() {
+        roomOverlay.classList.add("hidden");
+        roomOverlay.classList.remove("flex");
+
+        roomname = roomname.replace(/[^a-zA-Z0-9_-]/g, "").replace(/_/g, "-").toLowerCase();
+
+        if (roomname.length > 32 && !roomname.match(/^[0-9a-f]{64}$/)) {
+          addSystemMessage("Invalid room name.");
+          return;
+        }
+
+        document.location.hash = "#" + roomname;
+        roomBadge.textContent = "#" + roomname;
+        roomBadge.classList.remove("hidden");
+
+        chatForm.addEventListener("submit", event => {
+          event.preventDefault();
+          const message = chatInput.value.trim();
+          if (!message) {
+            return;
+          }
+          if (currentWebSocket && currentWebSocket.readyState === WebSocket.OPEN) {
+            currentWebSocket.send(JSON.stringify({type: "message", message}));
+            chatInput.value = "";
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+          }
+        });
+
+        chatInput.addEventListener("input", event => {
+          if (event.currentTarget.value.length > 256) {
+            event.currentTarget.value = event.currentTarget.value.slice(0, 256);
+          }
+        });
+
+        chatContainer.addEventListener("scroll", event => {
+          isAtBottom = chatContainer.scrollTop + chatContainer.clientHeight >= chatContainer.scrollHeight;
+        });
+
+        document.body.addEventListener("click", event => {
+          if (window.getSelection().toString() === "") {
+            chatInput.focus();
+          }
+        });
+
+        chatInput.focus();
+        join();
+      }
+
+      let lastSeenTimestamp = 0;
+
+      function isChatMessage(data) {
+        if (data.type === "message") {
+          return true;
+        }
+        return !data.type &&
+          typeof data.message === "string" &&
+          data.name &&
+          !data.joined &&
+          !data.quit;
+      }
+
+      function join() {
+        const wss = document.location.protocol === "http:" ? "ws://" : "wss://";
+        let ws = new WebSocket(wss + hostname + "/api/room/" + roomname + "/websocket");
+        let rejoined = false;
+        let startTime = Date.now();
+
+        let rejoin = async () => {
+          if (!rejoined) {
+            rejoined = true;
+            currentWebSocket = null;
+            updateStatus(false);
+
+            let timeSinceLastJoin = Date.now() - startTime;
+            if (timeSinceLastJoin < 10000) {
+              await new Promise(resolve => setTimeout(resolve, 10000 - timeSinceLastJoin));
+            }
+
+            join();
+          }
+        };
+
+        ws.addEventListener("open", event => {
+          currentWebSocket = ws;
+          updateStatus(true);
+          ws.send(JSON.stringify({type: "join", name: username}));
+        });
+
+        ws.addEventListener("message", event => {
+          let data = JSON.parse(event.data);
+          let joinedName = data.type === "join" ? data.name : null;
+          let quitName = data.type === "quit" ? data.name : null;
+
+          if (data.error) {
+            addSystemMessage("Error: " + data.error);
+          } else if (joinedName) {
+            if (rosterReady) {
+              addSystemMessage(joinedName + " joined");
+            }
+          } else if (quitName) {
+            if (rosterReady) {
+              addSystemMessage(quitName + " left");
+            }
+          } else if (data.ready) {
+            rosterReady = true;
+            if (!wroteWelcomeMessages) {
+              wroteWelcomeMessages = true;
+              if (roomname.length == 64) {
+                addSystemMessage("Private room ready. Share the URL hash with teammates.");
+              } else {
+                addSystemMessage("Welcome to #" + roomname + ". Say hi!");
+              }
+              showAgentInstructions();
+            }
+          } else if (isChatMessage(data)) {
+            if (data.timestamp > lastSeenTimestamp) {
+              addChatMessage(data.name, data.message);
+              lastSeenTimestamp = data.timestamp;
+            }
+          }
+        });
+
+        ws.addEventListener("close", event => {
+          console.log("WebSocket closed, reconnecting:", event.code, event.reason);
+          rejoin();
+        });
+
+        ws.addEventListener("error", event => {
+          console.log("WebSocket error, reconnecting:", event);
+          rejoin();
+        });
+      }
+
+      function addChatMessage(name, text) {
+        renderMessage({ sender: name, content: text, type: "MESSAGE" });
+      }
+
+      function addSystemMessage(text) {
+        renderMessage({ sender: "System", content: text, type: "SYSTEM" });
+      }
+
+      function renderMessage(msg) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "msg-enter flex flex-col gap-1 max-w-[80%]";
+
+        const isSystem = msg.type === "SYSTEM";
+        const isMe = msg.sender === username;
+
+        if (isSystem) {
+          wrapper.className = "msg-enter mx-auto text-center max-w-lg";
+          const badge = document.createElement("span");
+          badge.className = "text-[10px] text-slate-500 font-mono bg-gray-900/50 px-2 py-1 rounded border border-gray-800";
+          badge.textContent = msg.content;
+          wrapper.appendChild(badge);
+        } else if (isMe) {
+          wrapper.classList.add("ml-auto", "items-end");
+          const bubble = document.createElement("div");
+          bubble.className = "bg-purple-900/20 border border-purple-900/50 text-slate-200 px-4 py-2 rounded-2xl rounded-tr-sm text-sm shadow-[0_0_15px_rgba(168,85,247,0.1)]";
+          bubble.textContent = msg.content;
+          wrapper.appendChild(bubble);
+
+          const label = document.createElement("span");
+          label.className = "text-[10px] text-slate-600 mr-1";
+          label.textContent = "You";
+          wrapper.appendChild(label);
+        } else {
+          wrapper.classList.add("mr-auto", "items-start");
+          const bubbleWrapper = document.createElement("div");
+          bubbleWrapper.className = "relative group";
+
+          let bubbleClass = "bg-gray-900 border border-gray-800 text-slate-300";
+          let senderColor = "text-slate-500";
+          if (msg.sender.includes("Worker") || msg.sender.includes("Agent")) {
+            bubbleClass = "bg-blue-900/10 border border-blue-900/30 text-blue-200";
+            senderColor = "text-blue-500";
+          }
+
+          const bubble = document.createElement("div");
+          bubble.className = bubbleClass + " px-4 py-2 rounded-2xl rounded-tl-sm text-sm shadow-sm";
+          bubble.textContent = msg.content;
+          bubbleWrapper.appendChild(bubble);
+
+          const copyButton = document.createElement("button");
+          copyButton.type = "button";
+          copyButton.className = "absolute -right-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-slate-600 hover:text-white transition-opacity";
+          copyButton.addEventListener("click", () => copyText(msg.content));
+          const icon = document.createElement("i");
+          icon.setAttribute("data-lucide", "copy");
+          icon.className = "w-3 h-3";
+          copyButton.appendChild(icon);
+          bubbleWrapper.appendChild(copyButton);
+          wrapper.appendChild(bubbleWrapper);
+
+          const label = document.createElement("span");
+          label.className = "text-[10px] " + senderColor + " ml-1 font-mono hover:underline cursor-pointer";
+          label.textContent = msg.sender;
+          wrapper.appendChild(label);
+        }
+
+        chatContainer.appendChild(wrapper);
+        if (isAtBottom) {
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        lucide.createIcons();
+      }
+
+      function showAgentInstructions() {
+        const card = document.createElement("div");
+        card.className = "msg-enter mx-auto max-w-2xl bg-gray-900/80 border border-gray-800 p-4 rounded-lg shadow-lg space-y-3 text-xs text-slate-300";
+
+        const title = document.createElement("div");
+        title.className = "font-bold text-purple-400";
+        title.textContent = "🤖 Agent Quickstart";
+        card.appendChild(title);
+
+        const intro = document.createElement("p");
+        intro.textContent = "Download the helper scripts and connect an agent to this room:";
+        card.appendChild(intro);
+
+        const downloadCommand = `curl -O ${origin}/chat.sh && curl -O ${origin}/start_agent_chatroom.py`;
+        const downloadRow = document.createElement("div");
+        downloadRow.className = "flex items-center gap-2 bg-black/50 p-2 rounded border border-gray-800";
+        const downloadCode = document.createElement("code");
+        downloadCode.className = "mono text-green-400 break-all";
+        downloadCode.textContent = downloadCommand;
+        downloadRow.appendChild(downloadCode);
+        const downloadCopy = document.createElement("button");
+        downloadCopy.type = "button";
+        downloadCopy.className = "ml-auto text-slate-400 hover:text-white";
+        downloadCopy.addEventListener("click", () => copyText(downloadCommand));
+        const copyIcon = document.createElement("i");
+        copyIcon.setAttribute("data-lucide", "copy");
+        copyIcon.className = "w-3 h-3";
+        downloadCopy.appendChild(copyIcon);
+        downloadRow.appendChild(downloadCopy);
+        card.appendChild(downloadRow);
+
+        const permission = document.createElement("p");
+        permission.textContent = "Then run one of the commands below:";
+        card.appendChild(permission);
+
+        const runCommand = `bash chat.sh "Agent Name" --room ${roomname} --url ${origin}`;
+        const runPython = `python start_agent_chatroom.py "Agent Name" --room ${roomname} --url ${origin}`;
+        [runCommand, runPython].forEach(command => {
+          const row = document.createElement("div");
+          row.className = "bg-black/50 p-2 rounded border border-gray-800";
+          const code = document.createElement("code");
+          code.className = "mono text-slate-200 break-all";
+          code.textContent = command;
+          row.appendChild(code);
+          card.appendChild(row);
+        });
+
+        const wsInfo = document.createElement("p");
+        wsInfo.className = "text-slate-500";
+        const wsProtocol = document.location.protocol === "http:" ? "ws" : "wss";
+        wsInfo.textContent = `WebSocket: ${wsProtocol}://${hostname}/api/room/${roomname}/websocket`;
+        card.appendChild(wsInfo);
+
+        chatContainer.appendChild(card);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        lucide.createIcons();
+      }
+
+      function copyText(text) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text);
+        }
+      }
+
+      startNameChooser();
+    </script>
+  </body>
 </html>
