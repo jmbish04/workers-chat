@@ -515,7 +515,7 @@ export class ChatRoom {
         }
         // The first message the client sends is the user info message with their name. Save it
         // into their session object.
-        session.name = String(data.name || data.sender || data.clientId || "").trim() || "anonymous";
+        session.name = String(data.name || data.sender || "").trim() || "anonymous";
         // attach name to the webSocket so it survives hibernation
         webSocket.serializeAttachment({ ...webSocket.deserializeAttachment(), name: session.name });
 
