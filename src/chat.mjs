@@ -83,6 +83,137 @@ async function handleErrors(request, func) {
   }
 }
 
+function buildOpenApiSpec(request) {
+  const origin = new URL(request.url).origin;
+  return {
+    openapi: "3.1.0",
+    info: {
+      title: "Workers Chat API",
+      version: "1.0.0"
+    },
+    servers: [{ url: origin }],
+    paths: {
+      "/api/room": {
+        post: {
+          operationId: "createRoom",
+          summary: "Create a private room",
+          responses: {
+            "200": {
+              description: "Room identifier",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" }
+                }
+              }
+            },
+            "405": { description: "Method not allowed" }
+          }
+        }
+      },
+      "/api/room/{name}/websocket": {
+        get: {
+          operationId: "connectRoomWebsocket",
+          summary: "Connect to a room WebSocket",
+          description: "Upgrade this request to a WebSocket session for the named room.",
+          parameters: [
+            {
+              name: "name",
+              in: "path",
+              required: true,
+              schema: { type: "string" }
+            }
+          ],
+          responses: {
+            "101": { description: "Switching Protocols" },
+            "400": { description: "Expected websocket" },
+            "404": { description: "Not found" }
+          }
+        }
+      },
+      "/openapi.json": {
+        get: {
+          operationId: "getOpenApiSpec",
+          summary: "Fetch the OpenAPI specification",
+          responses: {
+            "200": {
+              description: "OpenAPI document",
+              content: {
+                "application/json": { schema: { type: "object" } }
+              }
+            }
+          }
+        }
+      },
+      "/swagger": {
+        get: {
+          operationId: "getSwaggerUi",
+          summary: "Swagger UI",
+          responses: {
+            "200": {
+              description: "Swagger UI HTML",
+              content: { "text/html": { schema: { type: "string" } } }
+            }
+          }
+        }
+      },
+      "/scaler": {
+        get: {
+          operationId: "getScalerUi",
+          summary: "Scalar API reference",
+          responses: {
+            "200": {
+              description: "Scalar UI HTML",
+              content: { "text/html": { schema: { type: "string" } } }
+            }
+          }
+        }
+      }
+    }
+  };
+}
+
+function renderSwaggerHtml(specUrl) {
+  return `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>Workers Chat API - Swagger UI</title>
+      <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist/swagger-ui.css" />
+      <style>body { margin: 0; background: #0b0b0b; }</style>
+    </head>
+    <body>
+      <div id="swagger-ui"></div>
+      <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
+      <script>
+        window.ui = SwaggerUIBundle({
+          url: "${specUrl}",
+          dom_id: "#swagger-ui"
+        });
+      </script>
+    </body>
+  </html>`;
+}
+
+function renderScalerHtml(specUrl) {
+  return `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>Workers Chat API - Scalar</title>
+      <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+      <style>body { margin: 0; }</style>
+    </head>
+    <body>
+      <script>
+        Scalar.createApiReference({
+          specUrl: "${specUrl}",
+          theme: "purple"
+        });
+      </script>
+    </body>
+  </html>`;
+}
+
 // In modules-syntax workers, we use `export default` to export our script's main event handlers.
 // Here, we export one handler, `fetch`, for receiving HTTP requests. In pre-modules workers, the
 // fetch handler was registered using `addEventHandler("fetch", event => { ... })`; this is just
@@ -108,8 +239,30 @@ export default {
         case "api":
           // This is a request for `/api/...`, call the API handler.
           return handleApiRequest(path.slice(1), request, env);
+        case "openapi.json": {
+          const body = JSON.stringify(buildOpenApiSpec(request), null, 2);
+          return new Response(body, {headers: {"Content-Type": "application/json;charset=UTF-8"}});
+        }
+        case "swagger": {
+          const specUrl = new URL("/openapi.json", request.url).toString();
+          return new Response(renderSwaggerHtml(specUrl), {
+            headers: {"Content-Type": "text/html;charset=UTF-8"}
+          });
+        }
+        case "scaler": {
+          const specUrl = new URL("/openapi.json", request.url).toString();
+          return new Response(renderScalerHtml(specUrl), {
+            headers: {"Content-Type": "text/html;charset=UTF-8"}
+          });
+        }
 
         default:
+          if (env.ASSETS) {
+            const assetResponse = await env.ASSETS.fetch(request);
+            if (assetResponse.status !== 404) {
+              return assetResponse;
+            }
+          }
           return new Response("Not found", {status: 404});
       }
     });
@@ -346,10 +499,15 @@ export class ChatRoom {
 
       // I guess we'll use JSON.
       let data = JSON.parse(msg);
-      let messageType = data.type;
+      let messageType = typeof data.type === "string" ? data.type.toLowerCase() : "";
+      let isJoinMessage = messageType === "join" || messageType === "handshake";
+      let isChatMessage = messageType === "message" ||
+        messageType === "agent_message" ||
+        messageType === "user_message" ||
+        messageType === "worker_message";
 
       if (!session.name) {
-        if (messageType && messageType !== "join") {
+        if (messageType && !isJoinMessage) {
           webSocket.send(JSON.stringify({
             error: "Expected join message first, received: " + messageType
           }));
@@ -357,7 +515,7 @@ export class ChatRoom {
         }
         // The first message the client sends is the user info message with their name. Save it
         // into their session object.
-        session.name = String(data.name || "").trim() || "anonymous";
+        session.name = String(data.name || data.sender || "").trim() || "anonymous";
         // attach name to the webSocket so it survives hibernation
         webSocket.serializeAttachment({ ...webSocket.deserializeAttachment(), name: session.name });
 
@@ -382,7 +540,11 @@ export class ChatRoom {
         return;
       }
 
-      if (messageType && messageType !== "message") {
+      if (isJoinMessage) {
+        return;
+      }
+
+      if (messageType && !isChatMessage) {
         webSocket.send(JSON.stringify({
           error: "Unknown message type: " + messageType
         }));
@@ -390,7 +552,14 @@ export class ChatRoom {
       }
 
       // Construct sanitized message for storage and broadcast.
-      data = { type: "message", name: session.name, message: "" + data.message };
+      let messageText = data.message ?? data.content;
+      if (messageText === undefined) {
+        webSocket.send(JSON.stringify({
+          error: "Message content missing."
+        }));
+        return;
+      }
+      data = { type: "message", name: session.name, message: "" + messageText };
 
       // Block people from sending overly long messages. This is also enforced on the client,
       // so to trigger this the user must be bypassing the client code.
